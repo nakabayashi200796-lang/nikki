@@ -1,0 +1,740 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<style>html { touch-action: manipulation; }</style>
+<script>
+/* 画面の拡大を止める（2本指で広げる・2回タップ）。viewport の指定だけだと無視されることがあるので、2本指の動きも直接止める */
+['gesturestart', 'gesturechange', 'gestureend'].forEach(t => document.addEventListener(t, e => e.preventDefault(), { passive: false }));
+document.addEventListener('touchmove', e => { if (e.touches.length > 1) e.preventDefault(); }, { passive: false });
+</script>
+<title>声の日記</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#171b26">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="声の日記">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<link rel="icon" type="image/png" sizes="32x32" href="./icon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<script src="./config.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+/* 夜の机。紺の部屋に、手元の灯りの色を1つだけ差す。いつも暗い見た目に固定する */
+:root {
+  color-scheme: dark;
+  --bg: #171b26;
+  --bg-2: #1f2433;
+  --bg-3: #2a3043;
+  --line: #343b52;
+  --ink: #ece4d6;
+  --ink-2: #b9b2a6;
+  --ink-3: #807b73;
+  --lamp: #f0b25c;
+  --lamp-2: #f6c987;
+  --red: #e2695a;
+  --green: #8fc79a;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: var(--bg); color: var(--ink); }
+body {
+  font-family: "Noto Sans JP", "Hiragino Sans", "Yu Gothic UI", "Meiryo", system-ui, sans-serif;
+  font-size: 16px; line-height: 1.7; display: flex; flex-direction: column;
+}
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+header {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  padding: calc(var(--safe-t) + 10px) 16px 10px; border-bottom: 1px solid var(--line);
+}
+header h1 { margin: 0; font-size: 18px; font-weight: 700; letter-spacing: .08em; }
+header h1 span { color: var(--lamp); }
+.icon-btn { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; color: var(--ink-2); }
+.icon-btn:active { background: var(--bg-3); }
+.icon-btn svg { width: 22px; height: 22px; }
+main { flex: 1; min-height: 0; position: relative; }
+.view { position: absolute; inset: 0; overflow-y: auto; overscroll-behavior: contain; padding: 16px 16px 28px; display: none; }
+.view.on { display: block; }
+.wrap { max-width: 640px; margin: 0 auto; }
+nav {
+  flex: none; display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid var(--line);
+  padding-bottom: var(--safe-b); background: var(--bg);
+}
+nav button { padding: 10px 0 12px; font-size: 14px; color: var(--ink-3); display: flex; flex-direction: column; align-items: center; gap: 2px; }
+nav button svg { width: 22px; height: 22px; }
+nav button.on { color: var(--lamp); }
+
+/* 話す画面 */
+.today { text-align: center; color: var(--ink-2); font-size: 15px; margin: 6px 0 0; letter-spacing: .05em; }
+.stage { display: flex; flex-direction: column; align-items: center; padding: 34px 0 10px; }
+.rec {
+  position: relative; width: 168px; height: 168px; border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #3a3427, #262116); border: 2px solid #5a4a2c;
+  display: grid; place-items: center; color: var(--lamp);
+  box-shadow: 0 0 0 0 rgba(240, 178, 92, 0); transition: transform .12s, box-shadow .2s;
+}
+.rec:active { transform: scale(.97); }
+.rec svg { width: 64px; height: 64px; position: relative; z-index: 1; }
+.rec .halo { position: absolute; inset: -2px; border-radius: 50%; border: 2px solid var(--lamp); opacity: 0; transform: scale(1); transition: transform .08s linear, opacity .2s; }
+.rec.on { background: radial-gradient(circle at 50% 40%, #5a2d27, #3a1a17); border-color: var(--red); color: #ffd9d2; }
+.rec.on .halo { opacity: .55; border-color: var(--red); }
+.rec.busy { opacity: .55; pointer-events: none; }
+.timer { font-variant-numeric: tabular-nums; font-size: 30px; margin-top: 18px; letter-spacing: .06em; min-height: 1.4em; }
+.hint { color: var(--ink-2); font-size: 14px; margin-top: 4px; text-align: center; min-height: 1.6em; }
+.sub-actions { display: flex; gap: 10px; justify-content: center; margin-top: 12px; min-height: 40px; }
+.btn { white-space: nowrap;
+  padding: 10px 18px; border-radius: 12px; background: var(--bg-3); color: var(--ink); font-size: 15px; font-weight: 500;
+  border: 1px solid var(--line);
+}
+.btn:active { filter: brightness(1.15); }
+.btn.primary { background: var(--lamp); color: #2a1d08; border-color: var(--lamp); font-weight: 700; }
+.btn.ghost { background: none; color: var(--ink-2); }
+.btn.small { padding: 6px 12px; font-size: 14px; }
+.btn[disabled] { opacity: .5; pointer-events: none; }
+.spinner { width: 22px; height: 22px; border-radius: 50%; border: 3px solid var(--bg-3); border-top-color: var(--lamp); animation: spin 1s linear infinite; display: inline-block; vertical-align: middle; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.card { background: var(--bg-2); border: 1px solid var(--line); border-radius: 16px; padding: 14px; margin-top: 16px; }
+.card h2 { margin: 0 0 8px; font-size: 15px; color: var(--ink-2); font-weight: 500; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.card h2 b { color: var(--lamp); font-weight: 700; }
+textarea {
+  width: 100%; min-height: 160px; resize: none; background: var(--bg); color: var(--ink); border: 1px solid var(--line);
+  border-radius: 12px; padding: 12px; font: inherit; line-height: 1.8; overflow: hidden;
+}
+textarea:focus { outline: 2px solid #6b5631; }
+.note { font-size: 13px; color: var(--ink-3); margin: 8px 0 0; }
+.note.warn { color: var(--lamp-2); }
+.row { display: flex; gap: 10px; justify-content: flex-end; margin-top: 12px; flex-wrap: wrap; }
+.banner { background: #2b2618; border: 1px solid #5a4a2c; color: var(--lamp-2); border-radius: 12px; padding: 10px 12px; font-size: 14px; margin-top: 14px; display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.banner > span { min-width: 0; }
+
+/* 見返す画面 */
+.month { margin: 18px 0 8px; font-size: 14px; color: var(--ink-3); letter-spacing: .08em; }
+.month:first-child { margin-top: 2px; }
+.days { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.day { background: var(--bg-2); border: 1px solid var(--line); border-radius: 12px; padding: 10px 6px; text-align: center; }
+.day b { display: block; font-size: 20px; font-weight: 700; color: var(--ink); line-height: 1.2; }
+.day small { color: var(--ink-3); font-size: 12px; }
+.day.today-mark { border-color: #6b5631; }
+.day:active { background: var(--bg-3); }
+.empty { color: var(--ink-3); text-align: center; padding: 40px 0; font-size: 15px; }
+.reader-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.reader-head h2 { margin: 0; font-size: 18px; flex: 1; min-width: 0; }
+.entry-time { color: var(--lamp); font-size: 14px; font-weight: 700; margin: 18px 0 4px; letter-spacing: .06em; }
+.entry-time:first-child { margin-top: 4px; }
+.entry p { margin: 0 0 10px; white-space: pre-wrap; word-break: break-word; }
+
+/* 設定 */
+.field { margin-top: 14px; }
+.field label { display: block; font-size: 14px; color: var(--ink-2); margin-bottom: 6px; }
+.field input { width: 100%; min-width: 0; padding: 10px 12px; border-radius: 10px; background: var(--bg); border: 1px solid var(--line); color: var(--ink); font: inherit; font-size: 15px; }
+.status-line { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--ink-3); flex: none; }
+.dot.ok { background: var(--green); }
+.dot.ng { background: var(--red); }
+
+.toast {
+  position: fixed; left: 50%; bottom: calc(var(--safe-b) + 84px); transform: translateX(-50%) translateY(20px);
+  background: #2f3547; color: var(--ink); padding: 10px 16px; border-radius: 12px; font-size: 14px; opacity: 0;
+  transition: opacity .2s, transform .2s; pointer-events: none; max-width: calc(100% - 32px); text-align: center; z-index: 10;
+}
+.toast.on { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<header>
+  <h1>声<span>の</span>日記</h1>
+  <button class="icon-btn" id="btnSettings" aria-label="設定">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
+  </button>
+</header>
+
+<main>
+  <!-- 話す -->
+  <section class="view on" id="vTalk"><div class="wrap">
+    <p class="today" id="todayLabel"></p>
+    <div id="talkBanner"></div>
+    <div class="stage">
+      <button class="rec" id="btnRec" aria-label="録音">
+        <span class="halo" id="halo"></span>
+        <svg id="icoMic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3.5"/><path d="M8.5 21.5h7"/></svg>
+        <svg id="icoStop" viewBox="0 0 24 24" style="display:none" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2.5"/></svg>
+      </button>
+      <div class="timer" id="timer"></div>
+      <div class="hint" id="hint">押して話し始めます</div>
+      <div class="sub-actions" id="subActions"></div>
+    </div>
+    <div id="resultArea"></div>
+  </div></section>
+
+  <!-- 見返す -->
+  <section class="view" id="vList"><div class="wrap" id="listWrap"></div></section>
+  <section class="view" id="vRead"><div class="wrap" id="readWrap"></div></section>
+
+  <!-- 設定 -->
+  <section class="view" id="vSettings"><div class="wrap">
+    <div class="reader-head">
+      <button class="icon-btn" id="btnSettingsBack" aria-label="戻る"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button>
+      <h2>設定</h2>
+    </div>
+    <div class="card">
+      <h2>Google ドライブ</h2>
+      <div class="status-line"><span class="dot" id="gDot"></span><span id="gText">つないでいません</span></div>
+      <p class="note">日記は、ドライブの「AIの作業場 › 生活 › 日記」に1日1ファイルで入ります。パソコンでは Obsidian から読めます。</p>
+      <div class="row"><button class="btn" id="btnGConnect">つなぐ</button><button class="btn ghost" id="btnGOut">つなぎを外す</button></div>
+    </div>
+    <div class="card">
+      <h2>Groq の鍵</h2>
+      <div class="status-line"><span class="dot" id="kDot"></span><span id="kText">未設定</span></div>
+      <div class="field">
+        <label for="keyInput">鍵を貼り付けて「保存」（パソコンの Groq voice と同じ鍵で使えます）</label>
+        <input id="keyInput" type="password" autocomplete="off" spellcheck="false" placeholder="gsk_…">
+      </div>
+      <p class="note">鍵はこの端末の中と、ドライブの「このアプリ専用の見えない場所」に置きます。一度入れれば、もう片方の端末ではドライブにつなぐだけで使えます。</p>
+      <div class="row"><button class="btn primary" id="btnKeySave">保存</button></div>
+    </div>
+    <p class="note" style="text-align:center;margin-top:18px">声は Groq に送って文字にし、整えた文だけを残します（声と、整える前の文字は残しません）。夜中の4時までに話した分は、前の日の日記に入ります。</p>
+  </div></section>
+</main>
+
+<nav>
+  <button class="on" id="tabTalk"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2.5" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3.5"/></svg>話す</button>
+  <button id="tabList"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v16H6.5A2.5 2.5 0 0 0 4 21.5z"/><path d="M4 5.5v16"/><path d="M8 7.5h8M8 11h6"/></svg>見返す</button>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script>
+"use strict";
+/* ───────── 決まりごと ───────── */
+const CFG = window.NIKKI_CONFIG || {};
+const SCOPES = "https://www.googleapis.com/auth/drive https://www.googleapis.com/auth/drive.appdata";
+const DAY_CUT_HOUR = 4;                       // 夜中の4時までは前の日の日記
+const STT_MODEL = "whisper-large-v3";
+const LLM_MODELS = ["qwen/qwen3.8-27b", "openai/gpt-oss-120b"];
+const GROQ = "https://api.groq.com/openai/v1";
+const DRIVE = "https://www.googleapis.com/drive/v3";
+const UPLOAD = "https://www.googleapis.com/upload/drive/v3";
+const LS = { tok: "nikki-token", key: "nikki-groq", folder: "nikki-folder", pending: "nikki-pending", consented: "nikki-consented" };
+const WEEK = ["日", "月", "火", "水", "木", "金", "土"];
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+function toast(msg, ms = 2600) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.remove("on"), ms);
+}
+const pad = n => String(n).padStart(2, "0");
+/* 日記の日付（4時より前なら前の日） */
+function dayKey(d) {
+  const x = new Date(d.getTime());
+  if (x.getHours() < DAY_CUT_HOUR) x.setDate(x.getDate() - 1);
+  return `${x.getFullYear()}-${pad(x.getMonth() + 1)}-${pad(x.getDate())}`;
+}
+function dayTitle(key) {
+  const [y, m, d] = key.split("-").map(Number);
+  const w = WEEK[new Date(y, m - 1, d).getDay()];
+  return `${y}年${m}月${d}日（${w}）`;
+}
+const hhmm = d => `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+/* ───────── Google のつなぎ（ブラウザの中だけで完結する許可。1時間ごとに静かに取り直す） ───────── */
+let tokenClient = null, tokWaiters = [];
+function savedToken() {
+  try {
+    const t = JSON.parse(localStorage.getItem(LS.tok) || "null");
+    return t && t.exp - Date.now() > 90 * 1000 ? t.access : null;
+  } catch { return null; }
+}
+function initGoogle() {
+  if (tokenClient || !CFG.googleClientId || !(window.google && google.accounts && google.accounts.oauth2)) return !!tokenClient;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CFG.googleClientId,
+    scope: SCOPES,
+    callback: resp => {
+      const ws = tokWaiters; tokWaiters = [];
+      if (resp.error || !resp.access_token) { ws.forEach(w => w[1](new Error(resp.error_description || resp.error || "許可が取れませんでした"))); return; }
+      if (!google.accounts.oauth2.hasGrantedAllScopes(resp, "https://www.googleapis.com/auth/drive", "https://www.googleapis.com/auth/drive.appdata")) {
+        ws.forEach(w => w[1](new Error("ドライブの許可にチェックが入っていませんでした。もう一度「つなぐ」で、全部にチェックを入れてください")));
+        return;
+      }
+      localStorage.setItem(LS.tok, JSON.stringify({ access: resp.access_token, exp: Date.now() + (Number(resp.expires_in) || 3600) * 1000 }));
+      localStorage.setItem(LS.consented, "1");
+      ws.forEach(w => w[0](resp.access_token));
+      refreshStatus();
+      afterConnect(resp.access_token);
+    },
+    error_callback: err => {
+      const ws = tokWaiters; tokWaiters = [];
+      const m = err && err.type === "popup_closed" ? "許可の画面が閉じられました" :
+                err && err.type === "popup_failed_to_open" ? "許可の画面が開けませんでした（ポップアップを許可してください）" : "許可が取れませんでした";
+      ws.forEach(w => w[1](new Error(m)));
+    },
+  });
+  return true;
+}
+/* 押した瞬間に呼ぶこと（許可の画面は、押した操作の中でしか開けない） */
+function getToken() {
+  const t = savedToken();
+  if (t) return Promise.resolve(t);
+  if (!CFG.googleClientId) return Promise.reject(new Error("Google の設定（クライアント ID）がまだです"));
+  if (!initGoogle()) return Promise.reject(new Error("Google の部品を読み込めていません。電波を確かめて開き直してください"));
+  return new Promise((res, rej) => {
+    tokWaiters.push([res, rej]);
+    tokenClient.requestAccessToken({ prompt: localStorage.getItem(LS.consented) ? "" : "consent" });
+  });
+}
+function dropToken() { localStorage.removeItem(LS.tok); refreshStatus(); }
+
+async function gfetch(tok, url, opt = {}) {
+  const r = await fetch(url, { ...opt, headers: { ...(opt.headers || {}), Authorization: "Bearer " + tok } });
+  if (r.status === 401) { dropToken(); throw new Error("Google の許可が切れました。もう一度押してください"); }
+  if (!r.ok) throw new Error(`ドライブの応答 ${r.status}: ${(await r.text()).slice(0, 160)}`);
+  return r;
+}
+const q = s => encodeURIComponent(s);
+async function driveList(tok, query, extra = "") {
+  const r = await gfetch(tok, `${DRIVE}/files?q=${q(query)}&fields=${q("files(id,name,parents,modifiedTime)")}&pageSize=1000${extra}`);
+  return (await r.json()).files || [];
+}
+async function driveMeta(tok, id) {
+  const r = await gfetch(tok, `${DRIVE}/files/${id}?fields=${q("id,name,parents,trashed")}`);
+  return r.json();
+}
+/* 「AIの作業場 › 生活 › 日記」のフォルダを探す（見つけたら覚えておく） */
+async function diaryFolder(tok) {
+  const cached = localStorage.getItem(LS.folder);
+  if (cached) {
+    try { const m = await driveMeta(tok, cached); if (!m.trashed && m.name === "日記") return cached; } catch (e) { if (/切れました/.test(e.message)) throw e; }
+    localStorage.removeItem(LS.folder);
+  }
+  const cands = await driveList(tok, "name = '日記' and mimeType = 'application/vnd.google-apps.folder' and trashed = false");
+  for (const c of cands) {
+    if (!c.parents || !c.parents[0]) continue;
+    const p = await driveMeta(tok, c.parents[0]);
+    if (p.name !== "生活" || !p.parents || !p.parents[0]) continue;
+    const gp = await driveMeta(tok, p.parents[0]);
+    if (gp.name !== "AIの作業場") continue;
+    localStorage.setItem(LS.folder, c.id);
+    return c.id;
+  }
+  throw new Error("ドライブに「AIの作業場 › 生活 › 日記」のフォルダが見つかりません");
+}
+async function readText(tok, id) {
+  const r = await gfetch(tok, `${DRIVE}/files/${id}?alt=media`);
+  return new TextDecoder("utf-8").decode(await r.arrayBuffer());
+}
+async function createText(tok, parent, name, text, mime = "text/markdown") {
+  const b = "nikki" + Math.random().toString(36).slice(2);
+  const meta = { name, mimeType: mime, parents: [parent] };
+  const body = `--${b}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(meta)}\r\n--${b}\r\nContent-Type: ${mime}; charset=UTF-8\r\n\r\n${text}\r\n--${b}--`;
+  const r = await gfetch(tok, `${UPLOAD}/files?uploadType=multipart&fields=id`, {
+    method: "POST", headers: { "Content-Type": `multipart/related; boundary=${b}` }, body: new Blob([body]),
+  });
+  return (await r.json()).id;
+}
+async function updateText(tok, id, text, mime = "text/markdown") {
+  await gfetch(tok, `${UPLOAD}/files/${id}?uploadType=media&fields=id`, {
+    method: "PATCH", headers: { "Content-Type": `${mime}; charset=UTF-8` }, body: new Blob([text]),
+  });
+}
+
+/* 日記に1回分を書き足す（その日のファイルが無ければ作る） */
+async function saveEntry(tok, text, at) {
+  const folder = await diaryFolder(tok);
+  const key = dayKey(at), name = key + ".md";
+  const section = `## ${hhmm(at)}\n\n${text.trim()}\n`;
+  const found = await driveList(tok, `'${folder}' in parents and name = '${name}' and trashed = false`);
+  if (!found.length) {
+    await createText(tok, folder, name, `# ${dayTitle(key)}\n\n${section}`);
+  } else {
+    let cur = await readText(tok, found[0].id);
+    cur = cur.replace(/\s+$/, "") + "\n\n";
+    await updateText(tok, found[0].id, cur + section);
+  }
+  return key;
+}
+
+/* Groq の鍵：端末の中＋ドライブの「アプリ専用の見えない場所」 */
+const localKey = () => (localStorage.getItem(LS.key) || "").trim();
+async function pullKeyFromDrive(tok) {
+  const f = await driveList(tok, "name = 'groq_key.txt' and trashed = false", "&spaces=appDataFolder");
+  if (!f.length) return "";
+  return (await readText(tok, f[0].id)).trim();
+}
+async function pushKeyToDrive(tok, key) {
+  const f = await driveList(tok, "name = 'groq_key.txt' and trashed = false", "&spaces=appDataFolder");
+  if (f.length) await updateText(tok, f[0].id, key, "text/plain");
+  else await createText(tok, "appDataFolder", "groq_key.txt", key, "text/plain");
+}
+async function afterConnect(tok) {
+  try {
+    if (!localKey()) {
+      const k = await pullKeyFromDrive(tok);
+      if (k) { localStorage.setItem(LS.key, k); toast("Groq の鍵をドライブから受け取りました"); }
+    } else {
+      const k = await pullKeyFromDrive(tok);
+      if (!k) await pushKeyToDrive(tok, localKey());
+    }
+  } catch (e) { console.warn(e); }
+  refreshStatus(); renderBanner();
+}
+
+/* ───────── Groq：文字にする・整える ───────── */
+const JUNK = /^(ご視聴ありがとうございました|ご清聴ありがとうございました|チャンネル登録(よろしくお願いします|お願いします)?|おやすみなさい)[。.!！\s]*$/;
+async function transcribe(blob) {
+  const key = localKey();
+  const fd = new FormData();
+  const ext = (blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm");
+  fd.append("file", blob, "koe." + ext);
+  fd.append("model", STT_MODEL);
+  fd.append("language", "ja");
+  fd.append("temperature", "0");
+  fd.append("response_format", "json");
+  fd.append("prompt", "日記を声で話した録音です。句読点を付けて書き起こします。");
+  let last;
+  for (let i = 0; i < 3; i++) {
+    const r = await fetch(GROQ + "/audio/transcriptions", { method: "POST", headers: { Authorization: "Bearer " + key }, body: fd });
+    if (r.ok) {
+      const t = ((await r.json()).text || "").trim();
+      return JUNK.test(t) ? "" : t;
+    }
+    last = `${r.status} ${(await r.text()).slice(0, 160)}`;
+    if (r.status === 401) throw new Error("Groq の鍵が通りません（設定で入れ直してください）");
+    if (r.status !== 429 && r.status < 500) break;
+    await sleep(4000 * (i + 1));
+  }
+  throw new Error("文字にできませんでした（Groq " + last + "）");
+}
+
+const SYSTEM = `あなたは日記の清書係です。本人が声で話した日記の文字起こしを、本人が読み返しやすい文にします。
+
+やること:
+- 「えーと」「あの」「なんか」「まあ」「うーん」などのつなぎ言葉や言いよどみを消す
+- 言い直したところは、最後に言い直したほうだけを残す
+- 同じ話題が行ったり来たりしているところは、同じ話題を近くにまとめ、起きた順など読みやすい順に並べる（中身は削らない）
+- 並べ替えたことで要らなくなった「話を戻すと」「あ、でもその前に」のような行き来の言葉は消す
+- 句読点を付け、話題が変わるところで段落を分ける（段落の間は空行1つ）
+- 明らかな聞き違いは、前後から確実にわかる場合だけ直す
+
+やらないこと:
+- 要約・省略をしない。話した出来事・考え・気持ちは全部残す
+- 言い方を変えない。です・ます調や書き言葉に直さず、「〜だった」「めっちゃ」「マジで」など本人の言い回しをそのまま使う
+- 自分の感想・説明・前置き・見出し・箇条書きを足さない
+
+出力は清書した本文だけにする。`;
+
+/* 長い話は、句点や間で区切って少しずつ整える（1分あたりの上限に当たらないように） */
+function splitChunks(text, size = 1200) {
+  const parts = text.split(/(?<=[。！？!?])|\s+|\n+/).filter(Boolean);
+  const out = []; let cur = "";
+  for (const p of parts) {
+    if (cur && (cur + p).length > size) { out.push(cur); cur = ""; }
+    cur += (cur && !/[。！？!?、]$/.test(cur) && !/^[。、]/.test(p) ? " " : "") + p;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+const bare = s => s.replace(/[\s、。，．,.!！?？「」『』…ー〜~]/g, "").replace(/(えーと|えっと|えー|あのー|あの|なんか|まあ|うーん|うん)/g, "");
+async function tidyChunk(chunk, before) {
+  const key = localKey();
+  const user = (before ? `前の部分（出力しない。続きの文脈としてだけ使う）:\n${before}\n\n` : "") + `文字起こし:\n${chunk}`;
+  const maxTok = Math.min(6000, Math.ceil(chunk.length * 1.7) + 200);
+  let lastErr = "";
+  for (const model of LLM_MODELS) {
+    for (let i = 0; i < 3; i++) {
+      const body = { model, temperature: 0, max_tokens: maxTok, messages: [{ role: "system", content: SYSTEM }, { role: "user", content: user }] };
+      if (model.startsWith("qwen/")) body.reasoning_effort = "none";
+      if (model.startsWith("openai/gpt-oss")) { body.reasoning_effort = "low"; body.include_reasoning = false; }
+      let r;
+      try {
+        r = await fetch(GROQ + "/chat/completions", { method: "POST", headers: { Authorization: "Bearer " + key, "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      } catch (e) { lastErr = "通信"; await sleep(2000); continue; }
+      if (r.status === 429) { lastErr = "429"; await sleep(9000 * (i + 1)); continue; }
+      if (!r.ok) { lastErr = `${r.status}`; break; }
+      const j = await r.json();
+      let out = ((j.choices && j.choices[0] && j.choices[0].message && j.choices[0].message.content) || "")
+        .replace(/<think>[\s\S]*?<\/think>/g, "").replace(/^(清書|本文)[:：]\s*/, "").trim();
+      const fin = j.choices && j.choices[0] && j.choices[0].finish_reason;
+      // 短くなりすぎた（要約された）・途中で切れた・空 → 次の手へ
+      if (!out || fin === "length" || bare(out).length < bare(chunk).length * 0.6) { lastErr = "短すぎ"; break; }
+      return out;
+    }
+  }
+  console.warn("整えられなかった:", lastErr);
+  return null;
+}
+async function tidy(raw, onStep) {
+  const chunks = splitChunks(raw);
+  const outs = []; let failed = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    if (onStep && chunks.length > 1) onStep(i + 1, chunks.length);
+    const before = i ? (outs[i - 1] || chunks[i - 1]).slice(-300) : "";
+    const t = await tidyChunk(chunks[i], before);
+    if (t === null) { failed++; outs.push(chunks[i]); } else outs.push(t);
+  }
+  return { text: outs.join("\n\n"), failed, total: chunks.length };
+}
+
+/* ───────── 録音 ───────── */
+let rec = null, recChunks = [], recStream = null, recStart = 0, recTimer = 0, audioCtx = null, analyser = null, levelRaf = 0, wakeLock = null, discardNext = false;
+let busy = false;
+function setRecUI(state) {
+  const b = $("btnRec");
+  b.classList.toggle("on", state === "rec");
+  b.classList.toggle("busy", state === "busy");
+  $("icoMic").style.display = state === "rec" ? "none" : "";
+  $("icoStop").style.display = state === "rec" ? "" : "none";
+  const sub = $("subActions");
+  sub.innerHTML = state === "rec" ? '<button class="btn ghost small" id="btnCancel">やめる（残さない）</button>' : "";
+  if (state === "rec") $("btnCancel").onclick = () => { discardNext = true; stopRec(); };
+}
+async function lockScreen() { try { wakeLock = await navigator.wakeLock.request("screen"); } catch {} }
+function unlockScreen() { try { wakeLock && wakeLock.release(); } catch {} wakeLock = null; }
+function pickMime() {
+  for (const m of ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"]) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+  return "";
+}
+async function startRec() {
+  if (!localKey()) { openSettings(); toast("先に Groq の鍵を入れてください"); return; }
+  if (loadPending()) { toast("まだ保存していない日記があります。先に保存か捨てるを選んでください"); return; }
+  try {
+    recStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+  } catch (e) {
+    $("hint").textContent = "マイクが使えません（ブラウザでマイクを許可してください）"; return;
+  }
+  const mime = pickMime();
+  rec = new MediaRecorder(recStream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : undefined);
+  recChunks = []; discardNext = false;
+  rec.ondataavailable = e => { if (e.data && e.data.size) recChunks.push(e.data); };
+  rec.onstop = onRecStop;
+  rec.start(1000);
+  recStart = Date.now();
+  setRecUI("rec");
+  $("hint").textContent = "話し終わったら、もう一度押します";
+  tick(); recTimer = setInterval(tick, 500);
+  lockScreen();
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(recStream);
+    analyser = audioCtx.createAnalyser(); analyser.fftSize = 512; src.connect(analyser);
+    const buf = new Uint8Array(analyser.fftSize);
+    const loop = () => {
+      analyser.getByteTimeDomainData(buf);
+      let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+      $("halo").style.transform = `scale(${1 + Math.min(peak / 128, 1) * 0.35})`;
+      levelRaf = requestAnimationFrame(loop);
+    };
+    loop();
+  } catch {}
+}
+function tick() {
+  const s = Math.floor((Date.now() - recStart) / 1000);
+  $("timer").textContent = `${Math.floor(s / 60)}:${pad(s % 60)}`;
+}
+function stopRec() {
+  if (rec && rec.state !== "inactive") rec.stop();
+  clearInterval(recTimer); cancelAnimationFrame(levelRaf);
+  $("halo").style.transform = "";
+  if (recStream) recStream.getTracks().forEach(t => t.stop());
+  if (audioCtx) audioCtx.close().catch(() => {});
+  audioCtx = null; recStream = null;
+}
+async function onRecStop() {
+  const blob = new Blob(recChunks, { type: rec.mimeType || "audio/webm" });
+  const secs = (Date.now() - recStart) / 1000;
+  recChunks = []; rec = null;
+  if (discardNext) { setRecUI("idle"); $("timer").textContent = ""; $("hint").textContent = "やめました（何も残していません）"; unlockScreen(); return; }
+  if (secs < 1.5 || blob.size < 2000) { setRecUI("idle"); $("timer").textContent = ""; $("hint").textContent = "短すぎたので捨てました"; unlockScreen(); return; }
+  const at = new Date(recStart);
+  busy = true; setRecUI("busy");
+  try {
+    $("hint").innerHTML = '<span class="spinner"></span> 文字にしています…';
+    const raw = await transcribe(blob);
+    if (!raw) { $("hint").textContent = "声が聞き取れませんでした。もう一度どうぞ"; return; }
+    $("hint").innerHTML = '<span class="spinner"></span> 整えています…';
+    const res = await tidy(raw, (i, n) => { $("hint").innerHTML = `<span class="spinner"></span> 整えています…（${i}/${n}）`; });
+    // 整える前の文字は、ここで捨てる（残すのは整えた文だけ）
+    const pending = { text: res.text, at: at.toISOString(), failed: res.failed, total: res.total };
+    localStorage.setItem(LS.pending, JSON.stringify(pending));
+    $("hint").textContent = "確かめて「保存」を押してください";
+    renderPending();
+  } catch (e) {
+    $("hint").textContent = e.message;
+  } finally {
+    busy = false; setRecUI("idle"); $("timer").textContent = ""; unlockScreen();
+  }
+}
+
+/* ───────── 保存待ちの1回分 ───────── */
+function loadPending() { try { return JSON.parse(localStorage.getItem(LS.pending) || "null"); } catch { return null; } }
+function autosize(t) { t.style.height = "auto"; t.style.height = (t.scrollHeight + 2) + "px"; }
+function renderPending() {
+  const p = loadPending(), area = $("resultArea");
+  if (!p) { area.innerHTML = ""; return; }
+  const at = new Date(p.at);
+  const warn = p.failed ? `<p class="note warn">${p.failed === p.total ? "AI で整えられなかったので、文字にしたままです。" : `一部（${p.failed}/${p.total}）は AI で整えられず、文字にしたままです。`}直したいところがあれば、ここで直してから保存できます。</p>` : "";
+  area.innerHTML = `<div class="card">
+      <h2><span><b>${esc(dayTitle(dayKey(at)))}</b>　${hhmm(at)}</span></h2>
+      <textarea id="pendText" spellcheck="false">${esc(p.text)}</textarea>
+      ${warn}
+      <div class="row"><button class="btn ghost" id="btnDiscard">捨てる</button><button class="btn primary" id="btnSave">保存</button></div>
+    </div>`;
+  const t = $("pendText"); autosize(t);
+  t.oninput = () => { autosize(t); const q2 = loadPending(); if (q2) { q2.text = t.value; localStorage.setItem(LS.pending, JSON.stringify(q2)); } };
+  $("btnDiscard").onclick = () => {
+    if (!confirm("この日記を捨てますか？（どこにも残りません）")) return;
+    localStorage.removeItem(LS.pending); renderPending(); $("hint").textContent = "捨てました";
+  };
+  $("btnSave").onclick = onSave;
+}
+function onSave() {
+  const p = loadPending(); if (!p) return;
+  const text = ($("pendText").value || "").trim();
+  if (!text) { toast("中身が空です"); return; }
+  const btn = $("btnSave"); btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
+  getToken()                                  // ← 押した操作の中で呼ぶ（許可の画面が出るのはここ）
+    .then(tok => saveEntry(tok, text, new Date(p.at)))
+    .then(key => {
+      localStorage.removeItem(LS.pending);
+      renderPending();
+      $("hint").innerHTML = `保存しました　<button class="btn small" id="btnSeeDay">${esc(dayTitle(key))} を見る</button>`;
+      $("btnSeeDay").onclick = () => { showTab("list"); openDay(key); };
+      listCache = null;
+    })
+    .catch(e => { toast(e.message, 4200); btn.disabled = false; btn.textContent = "保存"; });
+}
+
+/* ───────── 見返す ───────── */
+let listCache = null;
+function connectPrompt(where, msg) {
+  where.innerHTML = `<div class="empty">${esc(msg)}<br><br><button class="btn primary" id="btnConnectHere">Google ドライブにつなぐ</button></div>`;
+  $("btnConnectHere").onclick = () => getToken().then(() => renderList()).catch(e => toast(e.message, 4200));
+}
+async function renderList() {
+  const w = $("listWrap");
+  const tok = savedToken();
+  if (!tok) { connectPrompt(w, "過去の日記を読むには、ドライブにつなぎます"); return; }
+  if (!listCache) w.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+  try {
+    const folder = await diaryFolder(tok);
+    const files = (await driveList(tok, `'${folder}' in parents and trashed = false and mimeType != 'application/vnd.google-apps.folder'`))
+      .filter(f => /^\d{4}-\d{2}-\d{2}\.md$/.test(f.name)).sort((a, b) => b.name.localeCompare(a.name));
+    listCache = files;
+    if (!files.length) { w.innerHTML = '<div class="empty">まだ日記がありません。<br>「話す」から最初の1日をどうぞ</div>'; return; }
+    const today = dayKey(new Date());
+    let html = "", month = "";
+    for (const f of files) {
+      const key = f.name.slice(0, 10), [y, m, d] = key.split("-").map(Number);
+      const mk = `${y}年${m}月`;
+      if (mk !== month) { if (month) html += "</div>"; html += `<div class="month">${mk}</div><div class="days">`; month = mk; }
+      html += `<button class="day${key === today ? " today-mark" : ""}" data-key="${key}" data-id="${f.id}"><b>${d}</b><small>${WEEK[new Date(y, m - 1, d).getDay()]}曜${key === today ? "・今日" : ""}</small></button>`;
+    }
+    w.innerHTML = html + "</div>";
+    w.querySelectorAll(".day").forEach(b => b.onclick = () => openDay(b.dataset.key, b.dataset.id));
+  } catch (e) {
+    if (!savedToken()) connectPrompt(w, e.message); else w.innerHTML = `<div class="empty">${esc(e.message)}</div>`;
+  }
+}
+function renderDiary(md) {
+  const lines = md.replace(/\r/g, "").split("\n");
+  let html = "", para = [];
+  const flush = () => { if (para.length) { html += `<p>${esc(para.join("\n"))}</p>`; para = []; } };
+  for (const ln of lines) {
+    if (/^#\s/.test(ln)) { flush(); continue; }
+    if (/^##\s/.test(ln)) { flush(); html += `<div class="entry-time">${esc(ln.replace(/^##\s*/, ""))}</div>`; continue; }
+    if (!ln.trim()) { flush(); continue; }
+    para.push(ln);
+  }
+  flush();
+  return `<div class="entry">${html}</div>`;
+}
+async function openDay(key, id) {
+  showView("vRead");
+  const w = $("readWrap");
+  w.innerHTML = `<div class="reader-head"><button class="icon-btn" id="btnReadBack" aria-label="戻る"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg></button><h2>${esc(dayTitle(key))}</h2></div><div id="readBody"><div class="empty"><span class="spinner"></span></div></div>`;
+  $("btnReadBack").onclick = () => { showView("vList"); renderList(); };
+  const body = $("readBody");
+  const tok = savedToken();
+  if (!tok) { connectPrompt(body, "読むにはドライブにつなぎます"); $("btnConnectHere").onclick = () => getToken().then(() => openDay(key, id)).catch(e => toast(e.message)); return; }
+  try {
+    if (!id) {
+      const folder = await diaryFolder(tok);
+      const f = await driveList(tok, `'${folder}' in parents and name = '${key}.md' and trashed = false`);
+      if (!f.length) { body.innerHTML = '<div class="empty">この日の日記は見つかりませんでした</div>'; return; }
+      id = f[0].id;
+    }
+    body.innerHTML = renderDiary(await readText(tok, id));
+  } catch (e) { body.innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+}
+
+/* ───────── 画面の切り替え・設定 ───────── */
+let curTab = "talk";
+function showView(id) { document.querySelectorAll(".view").forEach(v => v.classList.toggle("on", v.id === id)); }
+function showTab(t) {
+  curTab = t;
+  $("tabTalk").classList.toggle("on", t === "talk");
+  $("tabList").classList.toggle("on", t === "list");
+  if (t === "talk") showView("vTalk"); else { showView("vList"); renderList(); }
+}
+function openSettings() { showView("vSettings"); refreshStatus(); }
+function refreshStatus() {
+  const tok = savedToken(), k = localKey();
+  $("gDot").className = "dot " + (tok ? "ok" : CFG.googleClientId ? "" : "ng");
+  $("gText").textContent = !CFG.googleClientId ? "Google の設定（クライアント ID）がまだです" : tok ? "つないでいます" : localStorage.getItem(LS.consented) ? "お休み中（使うときに自動でつなぎ直します）" : "つないでいません";
+  $("kDot").className = "dot " + (k ? "ok" : "ng");
+  $("kText").textContent = k ? `設定済み（…${k.slice(-4)}）` : "未設定";
+}
+function renderBanner() {
+  const b = $("talkBanner");
+  if (!localKey()) {
+    b.innerHTML = `<div class="banner"><span>はじめに、Groq の鍵を入れるか、ドライブにつないで鍵を受け取ってください</span><button class="btn small" id="btnBannerSet">設定</button></div>`;
+    $("btnBannerSet").onclick = openSettings;
+  } else b.innerHTML = "";
+}
+
+$("tabTalk").onclick = () => showTab("talk");
+$("tabList").onclick = () => showTab("list");
+$("btnSettings").onclick = openSettings;
+$("btnSettingsBack").onclick = () => showTab(curTab);
+$("btnGConnect").onclick = () => getToken().then(() => toast("ドライブにつなぎました")).catch(e => toast(e.message, 4200));
+$("btnGOut").onclick = () => {
+  const t = savedToken();
+  if (t && window.google && google.accounts) google.accounts.oauth2.revoke(t, () => {});
+  localStorage.removeItem(LS.tok); localStorage.removeItem(LS.consented); localStorage.removeItem(LS.folder);
+  refreshStatus(); toast("つなぎを外しました");
+};
+$("btnKeySave").onclick = () => {
+  const v = $("keyInput").value.trim();
+  if (!/^gsk_\w{20,}$/.test(v)) { toast("鍵の形が違うようです（gsk_ で始まる文字）"); return; }
+  localStorage.setItem(LS.key, v); $("keyInput").value = "";
+  refreshStatus(); renderBanner(); toast("鍵を保存しました");
+  const tok = savedToken();
+  if (tok) pushKeyToDrive(tok, v).then(() => toast("ドライブにも預けました")).catch(e => console.warn(e));
+};
+$("btnRec").onclick = () => {
+  if (busy) return;
+  if (rec && rec.state === "recording") stopRec(); else startRec();
+};
+/* PC ではスペースキーでも始める・止める（文字を打っている最中は除く） */
+document.addEventListener("keydown", e => {
+  if (e.code !== "Space" || e.repeat) return;
+  const tag = (document.activeElement && document.activeElement.tagName) || "";
+  if (tag === "TEXTAREA" || tag === "INPUT" || !$("vTalk").classList.contains("on")) return;
+  e.preventDefault(); $("btnRec").click();
+});
+
+function tickToday() { $("todayLabel").textContent = dayTitle(dayKey(new Date())); }
+tickToday(); setInterval(tickToday, 60 * 1000);
+refreshStatus(); renderBanner(); renderPending();
+if (loadPending()) $("hint").textContent = "保存していない日記があります";
+window.addEventListener("load", () => { initGoogle(); });
+if ("serviceWorker" in navigator && location.protocol === "https:") navigator.serviceWorker.register("./sw.js").catch(() => {});
+</script>
+</body>
+</html>
