@@ -469,12 +469,12 @@ async function tidyChunk(chunk, before) {
   console.warn("整えられなかった:", lastErr);
   return null;
 }
-async function tidy(raw, onStep) {
+async function tidy(raw, onStep, firstBefore = "") {
   const chunks = splitChunks(raw);
   const outs = []; let failed = 0;
   for (let i = 0; i < chunks.length; i++) {
     if (onStep && chunks.length > 1) onStep(i + 1, chunks.length);
-    const before = i ? (outs[i - 1] || chunks[i - 1]).slice(-300) : "";
+    const before = i ? (outs[i - 1] || chunks[i - 1]).slice(-300) : firstBefore;
     const t = await tidyChunk(chunks[i], before);
     if (t === null) { failed++; outs.push(chunks[i]); } else outs.push(t);
   }
@@ -502,7 +502,6 @@ function pickMime() {
 }
 async function startRec() {
   if (!localKey()) { openSettings(); toast("先に Groq の鍵を入れてください"); return; }
-  if (loadPending()) { toast("まだ保存していない日記があります。先に保存か捨てるを選んでください"); return; }
   try {
     recStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
   } catch (e) {
@@ -558,11 +557,16 @@ async function onRecStop() {
     const raw = await transcribe(blob);
     if (!raw) { $("hint").textContent = "声が聞き取れませんでした。もう一度どうぞ"; return; }
     $("hint").innerHTML = '<span class="spinner"></span> 整えています…';
-    const res = await tidy(raw, (i, n) => { $("hint").innerHTML = `<span class="spinner"></span> 整えています…（${i}/${n}）`; });
+    // まだ保存していない分があれば、その続きとして整えて下に足す（時刻は最初に話し始めたときのまま）
+    const prev = loadPending();
+    const res = await tidy(raw, (i, n) => { $("hint").innerHTML = `<span class="spinner"></span> 整えています…（${i}/${n}）`; },
+                           prev ? prev.text.slice(-300) : "");
     // 整える前の文字は、ここで捨てる（残すのは整えた文だけ）
-    const pending = { text: res.text, at: at.toISOString(), failed: res.failed, total: res.total };
+    const pending = prev
+      ? { text: prev.text.replace(/\s+$/, "") + "\n\n" + res.text, at: prev.at, failed: (prev.failed || 0) + res.failed, total: (prev.total || 0) + res.total }
+      : { text: res.text, at: at.toISOString(), failed: res.failed, total: res.total };
     localStorage.setItem(LS.pending, JSON.stringify(pending));
-    $("hint").textContent = "確かめて「保存」を押してください";
+    $("hint").textContent = "続けて話すならマイク、終わりなら「保存」";
     renderPending();
   } catch (e) {
     $("hint").textContent = e.message;

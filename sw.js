@@ -1,5 +1,5 @@
 /* 声の日記 — 電波が無くても画面だけは開けるようにする小さな仕掛け */
-const V = "nikki-v2";
+const V = "nikki-v3";
 const SHELL = ["./", "./index.html", "./config.js", "./manifest.webmanifest", "./icon-32.png", "./icon-180.png", "./icon-192.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
