@@ -693,8 +693,10 @@ function refreshStatus() {
 function renderBanner() {
   const b = $("talkBanner");
   if (!localKey()) {
-    b.innerHTML = `<div class="banner"><span>はじめに、Groq の鍵を入れるか、ドライブにつないで鍵を受け取ってください</span><button class="btn small" id="btnBannerSet">設定</button></div>`;
-    $("btnBannerSet").onclick = openSettings;
+    b.innerHTML = `<div class="banner"><span>はじめに、ドライブにつないでください</span><button class="btn small" id="btnBannerSet">つなぐ</button></div>`;
+    $("btnBannerSet").onclick = () => getToken()
+      .then(() => toast("ドライブにつなぎました"))
+      .catch(e => toast(e.message, 4200));
   } else b.innerHTML = "";
 }
 
